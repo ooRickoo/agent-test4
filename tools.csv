@@ -1,0 +1,7 @@
+﻿agent,querytype,comments
+whois,internet:domain; internet:ipv4,accepts an IP or domain and returns either IP network ownership information or domain regristration infromation
+geolocate_ip,internet:ipv4,geolocate a ipv4 internet address
+absueipdb,internet:ipv4,check an internet ipv4 address against AbuseIPDB
+shodan,internet:fqdn; internet:ipv4,accepts an IP or fqdn and summarizes information from Shodan known about the entiy
+virustotal,internet:fqdn; internet:ipv4,accepts an IP or fqdn and summarizes information from VirusTotal known about the entiy
+dnsanalysis,internet:domain; internet:ipv4,"accepts an IP,fqdn, domain and summarizes information frrin DNS about the entiy.  If the input is an IP address a dns resolution should be done returning the fqdn.  If a fqdn is provided as an input, a resolution shold be done and IP returned.  If a domain is passed, a summary of DNS information should be included - NS, MX, CName, A, AAA, and TXT"
