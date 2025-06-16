@@ -12,7 +12,6 @@ from typing import Dict, List, Any, TypedDict, Annotated, Sequence, Optional, Tu
 from datetime import datetime
 import argparse
 from dotenv import load_dotenv
-from openai import OpenAI
 from langgraph.graph import StateGraph, END
 import whois
 import socket
@@ -22,6 +21,7 @@ import ipaddress
 import requests
 import dns.resolver
 from irg_client import MockIRGClient
+from gemini_client import GeminiClient
 
 # Load environment variables
 load_dotenv()
@@ -47,11 +47,9 @@ logger.addHandler(console_handler)
 # Prevent propagation to root logger
 logger.propagate = False
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Initialize IRG client
+# Initialize clients
 irg_client = MockIRGClient()
+gemini_client = GeminiClient()
 
 # Define state types
 class AgentState(TypedDict):
@@ -866,41 +864,20 @@ def virustotal_lookup(entities: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 def format_output(query: str, query_type: str, tool_results: Dict[str, Any]) -> Dict[str, Any]:
-    """Format tool results into a comprehensive security analysis."""
+    """Format the output using the Gemini client."""
     try:
-        # Get the output formatter prompt
-        output_formatter_prompt = prompts["output_formatter"]
+        # Use Gemini client for analysis and formatting
+        analysis = gemini_client.analyze_security(query, tool_results)
+        formatted_output = gemini_client.format_output(query, analysis)
         
-        # Format the prompt with the query and tool results
-        formatted_prompt = output_formatter_prompt["user"].format(
-            query=query,
-            query_type=query_type,
-            tool_results=json.dumps(tool_results, indent=2)
-        )
-        
-        # Get the response from the model
-        response = call_openai(
-            system_prompt=output_formatter_prompt["system"],
-            user_prompt=formatted_prompt
-        )
-        
-        # Parse the response as JSON
-        try:
-            result = json.loads(response)
-            if "formatted_output" not in result:
-                raise ValueError("Response missing 'formatted_output' key")
-            return result
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse output formatter response as JSON: {str(e)}")
-            logger.error(f"Raw response: {response}")
-            # Try to extract the formatted output from the response
-            if "formatted_output" in response:
-                return {"formatted_output": response.split('"formatted_output":')[1].strip(' "{}')}
-            raise ValueError(f"Invalid JSON response from output formatter: {str(e)}")
-            
+        return {
+            "formatted_output": formatted_output
+        }
     except Exception as e:
-        logger.error(f"Error in output formatter: {str(e)}")
-        raise
+        logger.error(f"Error in format_output: {str(e)}")
+        return {
+            "formatted_output": f"Error formatting output: {str(e)}"
+        }
 
 def extract_entities(state: Dict[str, Any]) -> Dict[str, Any]:
     """Extract entities from the query."""
@@ -941,26 +918,7 @@ def extract_entities(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in extract_entities: {str(e)}")
         state["error"] = f"Entity extraction error: {str(e)}"
-        return state
-
-def call_openai(system_prompt: str, user_prompt: str) -> str:
-    """Call OpenAI API with the given prompts."""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.3,
-            max_tokens=2000,
-            top_p=0.95,
-            frequency_penalty=0.0,
-            presence_penalty=0.0
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        raise Exception(f"Error calling OpenAI API: {str(e)}")
+        return 
 
 def parse_llm_response(response: str) -> Dict[str, Any]:
     """Parse the LLM response into a structured format."""
@@ -991,35 +949,20 @@ def supervisor_node(state: AgentState) -> AgentState:
         )
         
         # First, check if it's a security-related query
-        security_check = call_openai(
-            system_prompt=prompts["classifier"]["system"],
-            user_prompt=prompts["classifier"]["user"].format(query=state["query"])
-        )
+        security_check = gemini_client.classify_query(state["query"])
         
-        try:
-            security_result = json.loads(security_check)
-            if not security_result.get("valid_cs_question", False):
-                state["error"] = security_result.get("reason", "Not a security-related query")
-                state["final_output"] = state["error"]
-                state["query_type"] = ""  # Clear query type to trigger early exit
-                return state
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse security check response: {security_check}")
-            state["error"] = "Failed to validate query"
+        if not security_check.get("valid_cs_question", False):
+            state["error"] = security_check.get("reason", "Not a security-related query")
             state["final_output"] = state["error"]
             state["query_type"] = ""  # Clear query type to trigger early exit
             return state
         
         # If it's a security query, proceed with classification
-        classification_result = call_openai(
-            system_prompt=prompts["classifier"]["system"],
-            user_prompt=prompts["classifier"]["user"].format(query=state["query"])
-        )
+        classification_result = gemini_client.classify_query(state["query"])
         
         try:
-            validation_result = json.loads(classification_result)
-            state["query_type"] = validation_result.get("search_classification", "general_security")
-            entities = validation_result.get("entities", {})
+            state["query_type"] = classification_result.get("search_classification", "general_security")
+            entities = classification_result.get("entities", {})
             
             # Classify entities based on patterns
             for entity_id, entity_data in entities.items():
@@ -1067,14 +1010,14 @@ def supervisor_node(state: AgentState) -> AgentState:
                 agent="supervisor",
                 action="complete",
                 input_data={"query": state["query"]},
-                output=validation_result,
+                output=classification_result,
                 debug_only=True
             )
             
             return state
             
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse classification response: {classification_result}")
+        except Exception as e:
+            logger.error(f"Failed to process classification: {str(e)}")
             state["error"] = "Failed to classify query"
             state["final_output"] = state["error"]
             state["query_type"] = ""  # Clear query type to trigger early exit
@@ -1194,44 +1137,25 @@ def output_format_node(state: AgentState) -> AgentState:
         log_agent_action(
             agent="output_formatter",
             action="start",
-            input_data={"query": state["query"], "tool_results": state["tool_results"]},
+            input_data={"query": state["query"], "tool_results": state.get("tool_results", {})},
             debug_only=True
         )
         
-        # If there's an error or no query type, return the error message directly
         if state.get("error"):
             state["final_output"] = state["error"]
-            log_agent_action(
-                agent="output_formatter",
-                action="complete",
-                input_data={"query": state["query"]},
-                output={"formatted_output": state["error"]},
-                debug_only=True
-            )
-            return state
-            
-        # If no tools were run (non-security query), return a clear message
-        if not state.get("query_type"):
-            state["final_output"] = "This query is not security-related and cannot be processed by the security analysis tools."
-            log_agent_action(
-                agent="output_formatter",
-                action="complete",
-                input_data={"query": state["query"]},
-                output={"formatted_output": state["final_output"]},
-                debug_only=True
-            )
             return state
         
-        # Format output for security queries
-        result = format_output(state["query"], state["query_type"], state["tool_results"])
+        # Use Gemini for analysis and formatting
+        analysis = gemini_client.analyze_security(state["query"], state.get("tool_results", {}))
+        formatted_output = gemini_client.format_output(state["query"], analysis)
         
-        state["final_output"] = result.get("formatted_output", "Error formatting output")
+        state["final_output"] = formatted_output
         
         log_agent_action(
             agent="output_formatter",
             action="complete",
             input_data={"query": state["query"]},
-            output=result,
+            output={"formatted_output": formatted_output},
             debug_only=True
         )
         
@@ -1247,7 +1171,6 @@ def output_format_node(state: AgentState) -> AgentState:
             debug_only=True
         )
         state["error"] = error_msg
-        state["final_output"] = error_msg
         return state
 
 def create_graph() -> StateGraph:

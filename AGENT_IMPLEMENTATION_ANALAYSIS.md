@@ -173,19 +173,9 @@ workflow.add_edge("perform_analysis", "generate_response")
 - More complex state management
 - Limited error recovery
 
-### 3. OpenAI SDK Implementation
+### 3. Google Gemini SDK Implementation
 
-**Advantages:**
-- Direct API access
-- Lower latency
-- Simpler implementation
-- Native function calling
-
-**Limitations:**
-- Limited workflow management
-- Manual state tracking
-- Basic error handling
-- Harder to extend
+The agent now uses Google Gemini for all LLM tasks, replacing OpenAI. See gemini_client.py for details.
 
 ## Key Differences
 

@@ -254,7 +254,7 @@ The agent follows a three-step workflow:
 
 2. Set up environment variables in `.env`:
    ```
-   OPENAI_API_KEY=your_openai_api_key
+   GOOGLE_API_KEY=your_google_api_key
    SHODAN_API_KEY=your_shodan_api_key
    ```
 
@@ -293,7 +293,7 @@ The agent uses two YAML configuration files for guardrails:
 
 ## Acknowledgments
 
-- [OpenAI](https://openai.com/)
+- [Google Gemini](https://ai.google.dev/)
 - [LangChain](https://github.com/langchain-ai/langchain)
 - [Shodan](https://www.shodan.io/) 
 
