@@ -205,9 +205,27 @@ class GeminiClient:
         try:
             gemini_prompts = self.prompts["gemini"]["analyzer"]
             system_prompt = gemini_prompts["system"]
+            
+            # Format tool results with tool metadata
+            formatted_results = {}
+            for tool_name, results in tool_results.items():
+                if tool_name in self.tools:
+                    tool_info = self.tools[tool_name]
+                    formatted_results[tool_name] = {
+                        "name": tool_info["name"],
+                        "description": tool_info["description"],
+                        "capabilities": tool_info["capabilities"],
+                        "results": results
+                    }
+                else:
+                    formatted_results[tool_name] = {
+                        "results": results,
+                        "warning": "Tool metadata not found in configuration"
+                    }
+            
             user_prompt = gemini_prompts["user"].format(
                 query=query,
-                tool_results=json.dumps(tool_results, indent=2)
+                tool_results=json.dumps(formatted_results, indent=2)
             )
             
             response = self._make_request(user_prompt, system_prompt)
