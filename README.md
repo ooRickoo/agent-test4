@@ -406,3 +406,170 @@ pip install -r requirements.txt
    ```
    NEW_TOOL_API_KEY=your_api_key
    ```
+
+# Gemini Client Implementation
+
+A Python client for interacting with Google's Gemini models through an API gateway, implementing OpenAI-compatible chat completion features.
+
+## Features
+
+- OpenAI-compatible chat completion interface
+- Streaming response support
+- Function calling capabilities
+- Comprehensive parameter control
+- OAuth token management
+- Robust error handling and retries
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd <repository-directory>
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Set up environment variables:
+```bash
+# API Gateway Configuration
+export APIGW_CONSUMER_KEY="your-consumer-key"
+export APIGW_CONSUMER_SECRET="your-consumer-secret"
+export RV_CLIENT_ID="your-client-id"
+export RV_API_KEY="your-api-key"
+```
+
+## Usage
+
+### Basic Usage
+
+```python
+from gemini_client import GeminiClient
+
+# Initialize client
+client = GeminiClient()
+
+# Simple query classification
+result = client.classify_query("What is the status of my security?")
+
+# Security analysis with tool results
+analysis = client.analyze_security(
+    query="Analyze security logs",
+    tool_results={
+        "log_analyzer": {
+            "results": "Log analysis results..."
+        }
+    }
+)
+
+# Format output
+formatted_output = client.format_output(
+    query="Format security report",
+    analysis=analysis
+)
+```
+
+### Streaming Responses
+
+```python
+# Stream classification results
+for chunk in client.classify_query(
+    "What is the status of my security?",
+    stream=True
+):
+    print(chunk)
+
+# Stream security analysis
+for chunk in client.analyze_security(
+    query="Analyze security logs",
+    tool_results={},
+    stream=True
+):
+    print(chunk)
+```
+
+### Function Calling
+
+```python
+# Define functions
+functions = [
+    {
+        "name": "get_security_status",
+        "description": "Get the current security status",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "system": {
+                    "type": "string",
+                    "description": "System to check"
+                }
+            }
+        }
+    }
+]
+
+# Use function calling
+response = client.analyze_security(
+    "Check security status",
+    tool_results={},
+    functions=functions,
+    function_call="auto"
+)
+```
+
+### Advanced Parameters
+
+```python
+response = client.format_output(
+    query="Format security report",
+    analysis={},
+    temperature=0.8,          # Control randomness (0.0 to 1.0)
+    max_tokens=1000,         # Maximum tokens to generate
+    top_p=0.9,              # Nucleus sampling parameter
+    frequency_penalty=0.5,   # Penalize frequent tokens
+    presence_penalty=0.5,    # Penalize new tokens
+    stop=["\n\n", "END"]     # Stop sequences
+)
+```
+
+## Configuration
+
+### Message Roles
+
+The client supports the following message roles:
+- `system`: System instructions
+- `user`: User messages
+- `assistant`: Model responses
+- `function`: Function call results
+- `tool`: Tool execution results
+
+### Environment Variables
+
+Required environment variables:
+- `APIGW_CONSUMER_KEY`: API Gateway consumer key
+- `APIGW_CONSUMER_SECRET`: API Gateway consumer secret
+- `RV_CLIENT_ID`: Client ID for the API
+- `RV_API_KEY`: API key for authentication
+
+## Error Handling
+
+The client includes comprehensive error handling:
+- Automatic token refresh
+- Request retries for failed calls
+- Detailed error logging
+- Streaming error recovery
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+[Your License Here]

@@ -7,7 +7,7 @@ import json
 import logging
 import base64
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Generator, Union
 import requests
 from dotenv import load_dotenv
 
@@ -16,6 +16,9 @@ load_dotenv()
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# OpenAI-compatible message roles
+MESSAGE_ROLES = ["system", "user", "assistant", "function", "tool"]
 
 def load_prompts() -> Dict[str, Dict[str, str]]:
     """Load prompts from JSON file."""
@@ -141,7 +144,20 @@ class GeminiClient:
         if missing_vars:
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
     
-    def _make_request(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    def _make_request(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        stream: bool = False,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        top_p: float = 1.0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        stop: Optional[List[str]] = None,
+        functions: Optional[List[Dict[str, Any]]] = None,
+        function_call: Optional[Union[str, Dict[str, str]]] = None
+    ) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """Make a request to the API gateway with OAuth token handling."""
         max_retries = 2
         retry_count = 0
@@ -152,29 +168,55 @@ class GeminiClient:
                 headers = self.headers.copy()
                 headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
                 
+                # Prepare messages in OpenAI chat completion format
+                chat_messages = []
+                if system_prompt:
+                    chat_messages.append({"role": "system", "content": system_prompt})
+                chat_messages.extend(messages)
+                
+                # Validate message roles
+                for msg in chat_messages:
+                    if msg["role"] not in MESSAGE_ROLES:
+                        raise ValueError(f"Invalid message role: {msg['role']}")
+                
                 payload = {
-                    "prompt": prompt,
-                    "model": "gemini-2.5-flash-preview-04-17"
+                    "messages": chat_messages,
+                    "model": "gemini-2.5-flash-preview-04-17",
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "frequency_penalty": frequency_penalty,
+                    "presence_penalty": presence_penalty,
+                    "stream": stream
                 }
                 
-                if system_prompt:
-                    payload["system_prompt"] = system_prompt
+                # Add optional parameters if specified
+                if max_tokens is not None:
+                    payload["max_tokens"] = max_tokens
+                if stop is not None:
+                    payload["stop"] = stop
+                if functions is not None:
+                    payload["functions"] = functions
+                if function_call is not None:
+                    payload["function_call"] = function_call
                 
-                response = requests.post(
-                    self.api_gateway_url,
-                    headers=headers,
-                    json=payload
-                )
-                
-                # If unauthorized, refresh token and retry
-                if response.status_code == 401 and retry_count < max_retries:
-                    logger.warning("Token expired, refreshing and retrying...")
-                    self.token_manager._refresh_token()
-                    retry_count += 1
-                    continue
-                
-                response.raise_for_status()
-                return response.json()
+                if stream:
+                    return self._stream_response(headers, payload)
+                else:
+                    response = requests.post(
+                        self.api_gateway_url,
+                        headers=headers,
+                        json=payload
+                    )
+                    
+                    # If unauthorized, refresh token and retry
+                    if response.status_code == 401 and retry_count < max_retries:
+                        logger.warning("Token expired, refreshing and retrying...")
+                        self.token_manager._refresh_token()
+                        retry_count += 1
+                        continue
+                    
+                    response.raise_for_status()
+                    return response.json()
                 
             except requests.exceptions.RequestException as e:
                 if retry_count == max_retries:
@@ -183,15 +225,61 @@ class GeminiClient:
                 retry_count += 1
                 continue
     
-    def classify_query(self, query: str) -> Dict[str, Any]:
+    def _stream_response(
+        self,
+        headers: Dict[str, str],
+        payload: Dict[str, Any]
+    ) -> Generator[Dict[str, Any], None, None]:
+        """Handle streaming response from the API."""
+        try:
+            with requests.post(
+                self.api_gateway_url,
+                headers=headers,
+                json=payload,
+                stream=True
+            ) as response:
+                response.raise_for_status()
+                
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            # Remove "data: " prefix if present
+                            line = line.decode('utf-8')
+                            if line.startswith('data: '):
+                                line = line[6:]
+                            
+                            # Skip "[DONE]" message
+                            if line.strip() == "[DONE]":
+                                continue
+                            
+                            chunk = json.loads(line)
+                            yield chunk
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse streaming response: {str(e)}")
+                            continue
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Streaming request failed: {str(e)}")
+            raise
+    
+    def classify_query(
+        self,
+        query: str,
+        stream: bool = False,
+        **kwargs
+    ) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """Classify a security query using the classification model."""
         try:
             gemini_prompts = self.prompts["gemini"]["classifier"]
             system_prompt = gemini_prompts["system"]
             user_prompt = gemini_prompts["user"].format(query=query)
             
-            response = self._make_request(user_prompt, system_prompt)
-            return self._extract_json_from_response(response.get("text", ""))
+            messages = [{"role": "user", "content": user_prompt}]
+            response = self._make_request(messages, system_prompt, stream=stream, **kwargs)
+            
+            if stream:
+                return response
+            else:
+                return self._extract_json_from_response(response.get("text", ""))
             
         except Exception as e:
             logger.error(f"Error in query classification: {str(e)}")
@@ -200,7 +288,13 @@ class GeminiClient:
                 "reason": f"Classification error: {str(e)}"
             }
     
-    def analyze_security(self, query: str, tool_results: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze_security(
+        self,
+        query: str,
+        tool_results: Dict[str, Any],
+        stream: bool = False,
+        **kwargs
+    ) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """Analyze security data using the analysis model."""
         try:
             gemini_prompts = self.prompts["gemini"]["analyzer"]
@@ -228,10 +322,15 @@ class GeminiClient:
                 tool_results=json.dumps(formatted_results, indent=2)
             )
             
-            response = self._make_request(user_prompt, system_prompt)
-            return {
-                "formatted_output": response.get("text", "")
-            }
+            messages = [{"role": "user", "content": user_prompt}]
+            response = self._make_request(messages, system_prompt, stream=stream, **kwargs)
+            
+            if stream:
+                return response
+            else:
+                return {
+                    "formatted_output": response.get("text", "")
+                }
             
         except Exception as e:
             logger.error(f"Error in security analysis: {str(e)}")
@@ -239,7 +338,13 @@ class GeminiClient:
                 "formatted_output": f"Error in security analysis: {str(e)}"
             }
     
-    def format_output(self, query: str, analysis: Dict[str, Any]) -> str:
+    def format_output(
+        self,
+        query: str,
+        analysis: Dict[str, Any],
+        stream: bool = False,
+        **kwargs
+    ) -> Union[str, Generator[Dict[str, Any], None, None]]:
         """Format the final output using the analysis model."""
         try:
             gemini_prompts = self.prompts["gemini"]["formatter"]
@@ -249,8 +354,13 @@ class GeminiClient:
                 analysis=json.dumps(analysis, indent=2)
             )
             
-            response = self._make_request(user_prompt, system_prompt)
-            return response.get("text", "")
+            messages = [{"role": "user", "content": user_prompt}]
+            response = self._make_request(messages, system_prompt, stream=stream, **kwargs)
+            
+            if stream:
+                return response
+            else:
+                return response.get("text", "")
             
         except Exception as e:
             logger.error(f"Error in output formatting: {str(e)}")
