@@ -68,31 +68,20 @@ class GuardrailConfig(TypedDict):
     description: str
     patterns: List[Dict[str, str]]
 
-# Load tools configuration from CSV
+# Load tools configuration from JSON
 def load_tools_config() -> Dict[str, Dict[str, Any]]:
-    """Load tools configuration from CSV file."""
-    tools_config = {}
+    """Load tools configuration from JSON file."""
     try:
-        with open("config/tools.csv", "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                tools_config[row["tool_name"]] = {
-                    "name": row["tool_name"],
-                    "description": row["description"],
-                    "input_types": row["input_types"].split(";"),
-                    "prompt": row["prompt"],
-                    "api_key": os.getenv(row["api_key_env"]),
-                    "base_url": row["base_url"]
-                }
-    except FileNotFoundError:
-        logger.error(
-            "tools.csv",
-            None,
-            "error",
-            {"error": "Tools configuration file not found"}
-        )
+        config_path = os.path.join(os.path.dirname(__file__), "config", "tools.json")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Tools configuration file not found at {config_path}")
+            
+        with open(config_path, "r") as f:
+            tools_data = json.load(f)
+            return tools_data.get("security_tools", {})
+    except Exception as e:
+        logger.error(f"Error loading tools configuration: {str(e)}")
         raise
-    return tools_config
 
 # Security tools configuration
 SECURITY_TOOLS = load_tools_config()
@@ -324,7 +313,7 @@ def extract_entities_with_log(state: dict) -> dict:
 def select_tools_with_log(state: dict) -> dict:
     logger.info("Selecting tools...")
     try:
-        result = select_tools(state)
+        result = select_tools(state["query_type"], state["entities"])
         logger.info("Tool selection complete.")
         return result
     except Exception as e:
@@ -437,18 +426,26 @@ def execute_tool(tool_name: str, entities: Dict[str, Any]) -> Dict[str, Any]:
 
 def select_tools(query_type: str, entities: Dict[str, Any]) -> List[str]:
     """Select appropriate tools based on query type and entities."""
-    tools = []
+    selected_tools = []
     
-    # Add tools based on query type
-    if query_type in ["security_posture_ip", "security_posture_domain", "security_posture_fqdn"]:
-        tools.extend(["whois_lookup", "dns_analysis", "geolocation", "abuseipdb", "shodan", "virustotal"])
-    elif query_type in ["geolocation_ip"]:
-        tools.extend(["geolocation", "dns_analysis"])
-    elif query_type in ["ownership_network", "ownership_domain"]:
-        tools.extend(["whois_lookup", "dns_analysis"])
+    # Map query types to tool capabilities
+    query_type_capabilities = {
+        "ip_analysis": ["log search", "threat detection", "incident investigation"],
+        "domain_analysis": ["log search", "threat detection", "incident investigation"],
+        "general_security": ["log search", "threat detection", "incident investigation", "vulnerability scanning"]
+    }
     
-    # Remove duplicate tools
-    return list(set(tools))
+    # Get required capabilities for the query type
+    required_capabilities = query_type_capabilities.get(query_type, [])
+    
+    # Select tools based on capabilities
+    for tool_name, tool_info in SECURITY_TOOLS.items():
+        tool_capabilities = tool_info.get("capabilities", [])
+        if any(cap in tool_capabilities for cap in required_capabilities):
+            selected_tools.append(tool_name)
+    
+    logger.info(f"Selected tools for {query_type}: {selected_tools}")
+    return selected_tools
 
 def log_agent_action(
     agent: str,
@@ -918,7 +915,7 @@ def extract_entities(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in extract_entities: {str(e)}")
         state["error"] = f"Entity extraction error: {str(e)}"
-        return 
+        return state
 
 def parse_llm_response(response: str) -> Dict[str, Any]:
     """Parse the LLM response into a structured format."""
