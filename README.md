@@ -1,12 +1,18 @@
 # Security Analysis Agent with LangGraph
 
-A modern security analysis tool that implements a multi-agent system for comprehensive security analysis using LangGraph. This tool provides detailed security analysis of IP addresses and domains through various security APIs and tools.
+A modern security analysis tool that implements a multi-agent system for comprehensive security analysis using LangGraph. This tool provides detailed security analysis of IP addresses and domains through various security APIs and tools, with support for both internal and external resources.
 
 ## Features
 
 - Multi-agent system using LangGraph for orchestration
 - Comprehensive security analysis of IPs and domains
+- Support for internal and cloud resources:
+  - Internal IPs and domains
+  - Azure cloud resources
+  - GCP cloud resources
+  - AWS cloud resources
 - Integration with multiple security APIs:
+  - Internal Resource Graph (IRG) for internal/cloud resources
   - IPAPI for geolocation and WHOIS data
   - AbuseIPDB for abuse reports
   - Shodan for port scanning and service detection
@@ -20,9 +26,31 @@ A modern security analysis tool that implements a multi-agent system for compreh
 
 The system uses a multi-agent architecture with LangGraph:
 
-1. **Supervisor Agent**: Validates input and manages the workflow
-2. **Tools Expert Agent**: Selects and executes appropriate security tools
-3. **Output Format Agent**: Formats and presents the results
+1. **Supervisor Agent**: 
+   - Validates input and manages the workflow
+   - Classifies resources as internal, cloud, or internet
+   - Uses pattern matching for resource classification
+2. **Tools Expert Agent**: 
+   - Selects and executes appropriate security tools
+   - Routes internal/cloud resources to IRG
+   - Routes internet resources to external APIs
+3. **Output Format Agent**: 
+   - Formats and presents the results
+
+### Resource Classification
+
+The supervisor agent classifies resources using the following hierarchy:
+
+1. **Internal Resources**:
+   - Internal IPs (e.g., 192.168.100.0/24)
+   - Internal domains (e.g., *.internal.rickonsecurity.com)
+2. **Cloud Resources**:
+   - Azure resources (e.g., *.azure.internal.rickonsecurity.com)
+   - GCP resources (e.g., *.gcp.internal.rickonsecurity.com)
+   - AWS resources (e.g., *.aws.internal.rickonsecurity.com)
+3. **Internet Resources**:
+   - Public IPs
+   - Public domains
 
 ### LangGraph Implementation
 
@@ -49,6 +77,26 @@ export IPAPI_API_KEY=your_ipapi_key
 export ABUSEIPDB_API_KEY=your_abuseipdb_key
 export SHODAN_API_KEY=your_shodan_key
 export VT_API_KEY=your_virustotal_key
+```
+
+### Resource Configuration
+
+Internal and cloud resources are configured in `config/internal_resources.json`:
+```json
+{
+  "internal_networks": [
+    "192.168.100.0/24",
+    "10.0.0.0/8"
+  ],
+  "internal_domains": [
+    "*.internal.rickonsecurity.com"
+  ],
+  "cloud_domains": {
+    "azure": "*.azure.internal.rickonsecurity.com",
+    "gcp": "*.gcp.internal.rickonsecurity.com",
+    "aws": "*.aws.internal.rickonsecurity.com"
+  }
+}
 ```
 
 ### Prompt Configuration
@@ -85,20 +133,17 @@ Tools are configured in `config/tools.csv` with:
 The agent can handle various security analysis queries:
 
 ```bash
-# Known C2 server analysis
-python security_agent_langgraph.py "Analyze the security of 185.143.223.12"
+# Internal resource analysis
+python security_agent_langgraph.py "Analyze the security of 192.168.100.10"
+python security_agent_langgraph.py "Check the security status of app.internal.rickonsecurity.com"
 
-# Malware distribution investigation
-python security_agent_langgraph.py "What can you tell me about 45.95.147.44"
+# Cloud resource analysis
+python security_agent_langgraph.py "Analyze the security of app1.azure.internal.rickonsecurity.com"
+python security_agent_langgraph.py "Check the security status of app1.gcp.internal.rickonsecurity.com"
 
-# Suspicious activity check
-python security_agent_langgraph.py "Check the security status of 91.92.240.58"
-
-# Geolocation with security context
-python security_agent_langgraph.py "Where is 185.234.72.234 located?"
-
-# Botnet infrastructure analysis
-python security_agent_langgraph.py "Analyze the security posture of 193.149.176.133"
+# Internet resource analysis
+python security_agent_langgraph.py "Analyze the security of 8.8.8.8"
+python security_agent_langgraph.py "What can you tell me about example.com"
 ```
 
 ## Installation
