@@ -5,6 +5,8 @@ Google Gemini client for different model interactions.
 import os
 import json
 import logging
+import base64
+import time
 from typing import Dict, Any, Optional
 import requests
 from dotenv import load_dotenv
@@ -28,21 +30,81 @@ def load_prompts() -> Dict[str, Dict[str, str]]:
         logger.error(f"Error loading prompts: {str(e)}")
         raise
 
+class TokenManager:
+    """Manages OAuth token lifecycle and refresh."""
+    
+    def __init__(self):
+        """Initialize the token manager."""
+        self.token = None
+        self.token_expiry = 0
+        self.token_url = "https://apigw-dev.internal.rickonsecurity.com/oauth/token"
+        self.consumer_key = os.getenv("APIGW_CONSUMER_KEY")
+        self.consumer_secret = os.getenv("APIGW_CONSUMER_SECRET")
+        
+        if not self.consumer_key or not self.consumer_secret:
+            raise ValueError("APIGW_CONSUMER_KEY and APIGW_CONSUMER_SECRET must be set")
+        
+        # Create base64 encoded credentials
+        credentials = f"{self.consumer_key}:{self.consumer_secret}"
+        self.basic_auth = base64.b64encode(credentials.encode()).decode()
+    
+    def get_token(self) -> str:
+        """Get a valid OAuth token, refreshing if necessary."""
+        current_time = time.time()
+        
+        # If token is expired or doesn't exist, get a new one
+        if not self.token or current_time >= self.token_expiry:
+            self._refresh_token()
+        
+        return self.token
+    
+    def _refresh_token(self) -> None:
+        """Refresh the OAuth token."""
+        try:
+            headers = {
+                "Authorization": f"Basic {self.basic_auth}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "grant_type": "client_credentials"
+            }
+            
+            response = requests.post(
+                self.token_url,
+                headers=headers,
+                json=payload
+            )
+            
+            response.raise_for_status()
+            token_data = response.json()
+            
+            self.token = token_data["access_token"]
+            # Set expiry to 5 minutes before actual expiry to ensure we refresh early
+            self.token_expiry = time.time() + token_data.get("expires_in", 3600) - 300
+            
+            logger.info("Successfully refreshed OAuth token")
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to refresh OAuth token: {str(e)}")
+            raise
+
 class GeminiClient:
     """Client for interacting with different Gemini models through API gateway."""
     
     def __init__(self):
         """Initialize the Gemini client with API gateway configuration."""
         # API Gateway configuration
-        self.api_gateway_url = "https://apigw-dev.internal.rickonsecurity.com/analytics/aiml/chat/v1/completion"
+        self.api_gateway_url = "https://apigw-dev.internal.rickonsecurity.com/analytics/aiml/chat/v1/search"
         
-        # Required headers
+        # Initialize token manager
+        self.token_manager = TokenManager()
+        
+        # Required headers (excluding Authorization which will be added dynamically)
         self.headers = {
             "x-rv-client-id": os.getenv("RV_CLIENT_ID"),
             "x-rv-api-key": os.getenv("RV_API_KEY"),
             "x-rv-usecase-id": "testing",
-            "apigw_consumer_key": os.getenv("APIGW_CONSUMER_KEY"),
-            "apigw_consumer_secret": os.getenv("APIGW_CONSUMER_SECRET"),
             "Content-Type": "application/json"
         }
         
@@ -66,28 +128,46 @@ class GeminiClient:
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
     
     def _make_request(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Make a request to the API gateway."""
-        try:
-            payload = {
-                "prompt": prompt,
-                "model": "gemini-2.5-flash-preview-04-17"
-            }
-            
-            if system_prompt:
-                payload["system_prompt"] = system_prompt
-            
-            response = requests.post(
-                self.api_gateway_url,
-                headers=self.headers,
-                json=payload
-            )
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"API Gateway request failed: {str(e)}")
-            raise
+        """Make a request to the API gateway with OAuth token handling."""
+        max_retries = 2
+        retry_count = 0
+        
+        while retry_count <= max_retries:
+            try:
+                # Get fresh token for each request
+                headers = self.headers.copy()
+                headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+                
+                payload = {
+                    "prompt": prompt,
+                    "model": "gemini-2.5-flash-preview-04-17"
+                }
+                
+                if system_prompt:
+                    payload["system_prompt"] = system_prompt
+                
+                response = requests.post(
+                    self.api_gateway_url,
+                    headers=headers,
+                    json=payload
+                )
+                
+                # If unauthorized, refresh token and retry
+                if response.status_code == 401 and retry_count < max_retries:
+                    logger.warning("Token expired, refreshing and retrying...")
+                    self.token_manager._refresh_token()
+                    retry_count += 1
+                    continue
+                
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                if retry_count == max_retries:
+                    logger.error(f"API Gateway request failed after {max_retries} retries: {str(e)}")
+                    raise
+                retry_count += 1
+                continue
     
     def classify_query(self, query: str) -> Dict[str, Any]:
         """Classify a security query using the classification model."""
