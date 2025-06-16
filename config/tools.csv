@@ -1,7 +1,0 @@
-tool_name,description,input_types,prompt,api_key_env,base_url
-whois_analysis,WHOIS domain and IP information,internet-domain;internet-ip,You are a cybersecurity analyst. Return summarized whois domain information or whois ip ownership information for a queried entity.,WHOIS_API_KEY,https://api.whoisfreaks.com/v1.0/whois
-geolocate,IP Geolocation information,internet-ip,You are a cybersecurity analyst. Return IP Geolocation information about the queried entity.,IPGEO_API_KEY,https://api.ipgeolocation.io/ipgeo
-dns_analysis,DNS record analysis,internet-domain;internet-fqdn;internet-ip,You are a cybersecurity analyst. Using the input and DNS tools only, summarize the searched entity output. For IP, return the resolved FQDN. For fqdn, return the IP address. For domain, summarize useful information NS, MX, CNAME, A, AAA, AAAA, and TXT records.,,local
-abuseipdb,AbuseIPDB reputation check,internet-ip,You are a cybersecurity analyst. Query abuseipdb and summarize findings from the service.,ABUSEIPDB_API_KEY,https://api.abuseipdb.com/api/v2/check
-shodan,Shodan device search,internet-ip;internet-fqdn,You are a cybersecurity analyst. Query shodan and summarize findings from the service.,SHODAN_API_KEY,https://api.shodan.io/shodan/host
-virustotal,VirusTotal threat intelligence,internet-ip;internet-fqdn,You are a cybersecurity analyst. Query virustotal and summarize findings from the service.,VIRUSTOTAL_API_KEY,https://www.virustotal.com/vtapi/v2/url/report 
