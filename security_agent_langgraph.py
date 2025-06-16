@@ -95,108 +95,21 @@ def load_tools_config() -> Dict[str, Dict[str, Any]]:
 # Security tools configuration
 SECURITY_TOOLS = load_tools_config()
 
-# Expert agent configurations
-EXPERT_AGENTS = {
-    "supervisor": {
-        "name": "Supervisor Agent",
-        "description": "Cloud Security and Cyber Security subject matter expert",
-        "system_prompt": """You are a Cloud Security and Cyber Security subject matter expert.
-        Your role is to:
-        1. Analyze and classify security-related queries
-        2. Validate input against security guardrails
-        3. Coordinate tool selection and execution
-        4. Ensure output meets security standards
-        5. Provide comprehensive security analysis
-        
-        You must:
-        - Reject non-security related queries
-        - Ensure all queries are properly classified
-        - Coordinate with tool experts
-        - Validate and enhance final output"""
-    },
-    "tools_expert": {
-        "name": "Tools Expert Agent",
-        "description": "Security tools selection and coordination expert",
-        "system_prompt": """You are a Security Tools Expert.
-        Your role is to:
-        1. Select appropriate tools based on query classification
-        2. Coordinate tool execution
-        3. Collect and validate tool outputs
-        4. Ensure comprehensive data collection
-        
-        You must:
-        - Select the most relevant tools
-        - Handle tool execution errors
-        - Ensure complete data collection
-        - Coordinate with tool-specific experts"""
-    },
-    "output_expert": {
-        "name": "Output Format Expert",
-        "description": "Security analysis output formatting expert",
-        "system_prompt": """You are an Output Format Expert.
-        Your role is to:
-        1. Format tool outputs for clarity
-        2. Ensure comprehensive analysis
-        3. Highlight key security findings
-        4. Maintain security standards
-        
-        You must:
-        - Present information clearly
-        - Highlight critical findings
-        - Maintain security context
-        - Ensure complete analysis"""
-    }
-}
-
-def load_guardrails() -> Tuple[List[GuardrailConfig], List[GuardrailConfig]]:
-    """Load guardrail configurations from YAML file."""
+# Load prompts
+def load_prompts() -> Dict[str, Dict[str, str]]:
+    """Load prompts from JSON file."""
     try:
-        config_path = os.path.join(os.path.dirname(__file__), "config", "rails_config.yaml")
+        config_path = os.path.join(os.path.dirname(__file__), "config", "prompts.json")
         if not os.path.exists(config_path):
-            # Return default guardrails if config file doesn't exist
-            default_input_guardrails = [
-                GuardrailConfig(
-                    name="length",
-                    description="Query length validation",
-                    patterns=[{"min": "3", "max": "500"}]
-                ),
-                GuardrailConfig(
-                    name="regex",
-                    description="Query character validation",
-                    patterns=[{"pattern": r'^[a-zA-Z0-9\s\.,\?\-_]+$'}]
-                )
-            ]
-            default_output_guardrails = [
-                GuardrailConfig(
-                    name="regex",
-                    description="Output character validation",
-                    patterns=[{"pattern": r'^[a-zA-Z0-9\s\.,\?\-_]+$'}]
-                )
-            ]
-            return default_input_guardrails, default_output_guardrails
+            raise FileNotFoundError(f"Prompts configuration file not found at {config_path}")
             
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-            
-        # Convert dictionary guardrails to GuardrailConfig objects
-        input_guardrails = []
-        for guardrail in config.get("input_guardrails", []):
-            if isinstance(guardrail, dict):
-                input_guardrails.append(GuardrailConfig(**guardrail))
-            else:
-                input_guardrails.append(guardrail)
-                
-        output_guardrails = []
-        for guardrail in config.get("output_guardrails", []):
-            if isinstance(guardrail, dict):
-                output_guardrails.append(GuardrailConfig(**guardrail))
-            else:
-                output_guardrails.append(guardrail)
-                
-        return input_guardrails, output_guardrails
+        with open(config_path, "r") as f:
+            return json.load(f)
     except Exception as e:
-        logger.error(f"Error loading guardrails: {str(e)}")
+        logger.error(f"Error loading prompts: {str(e)}")
         raise
+
+prompts = load_prompts()
 
 def debug_log(state: AgentState, agent: str, action: str, data: Any = None) -> None:
     """Log debug information if debug mode is enabled."""
@@ -234,22 +147,6 @@ def classify_query(state: Dict[str, Any]) -> Dict[str, Any]:
         state["error"] = f"Query classification error: {str(e)}"
         return state
 
-# Load prompts
-def load_prompts() -> Dict[str, Dict[str, str]]:
-    """Load prompts from JSON file."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), "config", "prompts.json")
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Prompts configuration file not found at {config_path}")
-            
-        with open(config_path, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading prompts: {str(e)}")
-        raise
-
-prompts = load_prompts()
-
 def format_classifier_prompt(query: str, prompts: Dict) -> str:
     """Format the classifier prompt using the loaded prompts."""
     try:
@@ -259,10 +156,10 @@ def format_classifier_prompt(query: str, prompts: Dict) -> str:
             
         # Build the system message
         system_message = """You are a security query classifier. Your ONLY task is to determine if a query is security-related.
-You MUST respond with EXACTLY 'true' or 'false', nothing else.
-Do not explain your reasoning.
-Do not add any additional text.
-Just respond with 'true' or 'false'."""
+                        You MUST respond with EXACTLY 'true' or 'false', nothing else.
+                        Do not explain your reasoning.
+                        Do not add any additional text.
+                        Just respond with 'true' or 'false'."""
             
         # Build the prompt sections
         sections = [
@@ -1096,23 +993,8 @@ def supervisor_node(state: AgentState) -> AgentState:
         
         # First, check if it's a security-related query
         security_check = call_openai(
-            system_prompt="""You are a security query classifier. Your task is to determine if a query is security-related.
-A query is security-related if it involves:
-- Network security
-- Domain/IP analysis
-- Security threats
-- Vulnerabilities
-- Security posture
-- Security ownership
-- Security incidents
-- Security tools or services
-
-Respond with a JSON object containing:
-{
-    "valid_cs_question": true/false,
-    "reason": "explanation if false"
-}""",
-            user_prompt=f"Query: {state['query']}\nIs this a security-related query? Respond with JSON only."
+            system_prompt=prompts["classifier"]["system"],
+            user_prompt=prompts["classifier"]["user"].format(query=state["query"])
         )
         
         try:
