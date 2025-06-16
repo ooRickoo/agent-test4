@@ -1,0 +1,28 @@
+{
+    "internal_networks": [
+        "192.168.100.0/24",
+        "192.168.110.0/24",
+        "192.168.120.0/24",
+        "192.168.130.0/24",
+        "192.168.140.0/24",
+        "192.168.150.0/24"
+    ],
+    "internal_domains": [
+        "*.internal.rickonsecurity.com"
+    ],
+    "cloud_domains": {
+        "azure": "*.azure.internal.rickonsecurity.com",
+        "gcp": "*.gcp.internal.rickonsecurity.com",
+        "aws": "*.aws.internal.rickonsecurity.com"
+    },
+    "irg_endpoints": {
+        "base_url": "https://api.internal.rickonsecurity.com/irg/v1",
+        "endpoints": {
+            "ip": "/ip/{ip}",
+            "domain": "/domain/{domain}",
+            "url": "/url/{url}",
+            "host": "/host/{hostname}",
+            "cloud_resource": "/cloud/{provider}/{resource_id}"
+        }
+    }
+} 

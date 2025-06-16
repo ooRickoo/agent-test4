@@ -21,6 +21,7 @@ import csv
 import ipaddress
 import requests
 import dns.resolver
+from irg_client import MockIRGClient
 
 # Load environment variables
 load_dotenv()
@@ -48,6 +49,9 @@ logger.propagate = False
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Initialize IRG client
+irg_client = MockIRGClient()
 
 # Define state types
 class AgentState(TypedDict):
@@ -911,25 +915,20 @@ def extract_entities(state: Dict[str, Any]) -> Dict[str, Any]:
         ip_matches = re.finditer(ip_pattern, query)
         for match in ip_matches:
             ip = match.group()
-            try:
-                ipaddress.ip_address(ip)
-                entities[ip] = {
-                    "type": "internet:ip",
-                    "value": ip
-                }
-                logger.info(f"Extracted IP address: {ip}")
-            except ValueError:
-                continue
+            entities[ip] = {
+                "type": "ip",  # Basic type, will be classified by supervisor
+                "value": ip
+            }
+            logger.info(f"Extracted IP address: {ip}")
         
-        # Extract domains - improved pattern to better handle domain names
+        # Extract domains
         domain_pattern = r'(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}'
         domain_matches = re.finditer(domain_pattern, query)
         for match in domain_matches:
-            domain = match.group().lower()  # Convert to lowercase
-            # Clean up the domain (remove any trailing punctuation)
+            domain = match.group().lower()
             domain = domain.rstrip('.,;:!?')
             entities[domain] = {
-                "type": "internet:domain",
+                "type": "fqdn",  # Basic type, will be classified by supervisor
                 "value": domain
             }
             logger.info(f"Extracted domain: {domain}")
@@ -1022,15 +1021,45 @@ def supervisor_node(state: AgentState) -> AgentState:
             state["query_type"] = validation_result.get("search_classification", "general_security")
             entities = validation_result.get("entities", {})
             
-            # Normalize entity types
+            # Classify entities based on patterns
             for entity_id, entity_data in entities.items():
+                entity_value = entity_data.get("value", "")
                 entity_type = entity_data.get("type", "").lower()
-                if entity_type == "domain":
-                    entity_data["type"] = "internet:domain"
-                elif entity_type == "ip":
-                    entity_data["type"] = "internet:ip"
-                elif entity_type == "fqdn":
-                    entity_data["type"] = "internet:fqdn"
+                
+                # Check for internal/cloud resources first
+                if entity_type in ["ip", "fqdn", "domain"]:
+                    # Check for internal IPs
+                    try:
+                        ip_obj = ipaddress.ip_address(entity_value)
+                        for network in irg_client.config["internal_networks"]:
+                            if ip_obj in ipaddress.ip_network(network):
+                                entity_data["type"] = "internal:ip"
+                                break
+                    except ValueError:
+                        # Not an IP, check for domains
+                        domain = entity_value.lower()
+                        
+                        # Check for cloud domains
+                        for provider, pattern in irg_client.config["cloud_domains"].items():
+                            if pattern.replace("*", "") in domain:
+                                entity_data["type"] = f"publiccloud:{provider}"
+                                break
+                        
+                        # Check for internal domains if not a cloud domain
+                        if not entity_data["type"].startswith("publiccloud:"):
+                            for pattern in irg_client.config["internal_domains"]:
+                                if pattern.replace("*", "") in domain:
+                                    entity_data["type"] = "internal:domain"
+                                    break
+                
+                # Only normalize to internet types if not already classified as internal/cloud
+                if not any(entity_data["type"].startswith(prefix) for prefix in ["internal:", "publiccloud:"]):
+                    if entity_type == "domain":
+                        entity_data["type"] = "internet:domain"
+                    elif entity_type == "ip":
+                        entity_data["type"] = "internet:ip"
+                    elif entity_type == "fqdn":
+                        entity_data["type"] = "internet:fqdn"
             
             state["entities"] = entities
             
@@ -1065,6 +1094,37 @@ def supervisor_node(state: AgentState) -> AgentState:
         state["query_type"] = ""  # Clear query type to trigger early exit
         return state
 
+def irg_lookup(entities: Dict[str, Any]) -> Dict[str, Any]:
+    """Query Internal Resource Graph for internal resources."""
+    try:
+        entity = next(iter(entities.values()))
+        entity_type = entity.get("type", "")
+        entity_value = entity.get("value", "")
+        
+        logger.info(f"Performing IRG lookup for {entity_type}: {entity_value}")
+        
+        # Query IRG
+        result = irg_client.query_resource(entity_type, entity_value)
+        
+        if "error" in result:
+            logger.warning(f"IRG lookup error: {result['error']}")
+            return {
+                "success": False,
+                "error": result["error"]
+            }
+        
+        return {
+            "success": True,
+            "data": result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in IRG lookup: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 def tools_expert_node(state: AgentState) -> AgentState:
     """Tools expert node that selects and executes appropriate tools."""
     try:
@@ -1075,17 +1135,34 @@ def tools_expert_node(state: AgentState) -> AgentState:
             debug_only=True
         )
         
-        # Select tools based on query type and entities
-        selected_tools = select_tools(state["query_type"], state["entities"])
-        
-        # Execute tools
+        # Execute tools based on entity types
         tool_results = {}
-        for tool in selected_tools:
-            try:
-                result = execute_tool(tool, state["entities"])
-                tool_results[f"{tool}"] = result
-            except Exception as e:
-                tool_results[f"{tool}"] = {"success": False, "error": str(e)}
+        for entity_id, entity in state["entities"].items():
+            entity_type = entity.get("type", "")
+            
+            # Handle internal resources
+            if entity_type.startswith("internal:") or entity_type.startswith("publiccloud:"):
+                result = irg_lookup({entity_id: entity})
+                tool_results[f"irg_{entity_id}"] = result
+            # Handle internet resources
+            elif entity_type == "internet:ip":
+                result = abuseipdb_lookup({entity_id: entity})
+                tool_results[f"abuseipdb_{entity_id}"] = result
+                
+                result = shodan_lookup({entity_id: entity})
+                tool_results[f"shodan_{entity_id}"] = result
+                
+                result = virustotal_lookup({entity_id: entity})
+                tool_results[f"virustotal_{entity_id}"] = result
+                
+                result = geolocate_ip({entity_id: entity})
+                tool_results[f"geolocation_{entity_id}"] = result
+            elif entity_type == "internet:domain":
+                result = dns_lookup({entity_id: entity})
+                tool_results[f"dns_{entity_id}"] = result
+                
+                result = virustotal_lookup({entity_id: entity})
+                tool_results[f"virustotal_{entity_id}"] = result
         
         state["tool_results"] = tool_results
         
