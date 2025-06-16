@@ -1,216 +1,178 @@
 # Security Analysis Agent with LangGraph
 
-A modern security analysis tool that implements a multi-agent system for comprehensive security analysis using LangGraph. This tool provides detailed security analysis of IP addresses and domains through various security APIs and tools, with support for both internal and external resources.
+A modern security analysis tool that implements a multi-agent system for comprehensive security analysis.
 
 ## Features
 
-- Multi-agent system using LangGraph for orchestration
-- Comprehensive security analysis of IPs and domains
-- Support for internal and cloud resources:
-  - Internal IPs and domains
-  - Azure cloud resources
-  - GCP cloud resources
-  - AWS cloud resources
-- Integration with multiple security APIs:
-  - Internal Resource Graph (IRG) for internal/cloud resources
-  - IPAPI for geolocation and WHOIS data
-  - AbuseIPDB for abuse reports
-  - Shodan for port scanning and service detection
-  - VirusTotal for threat intelligence
-  - DNS analysis for domain information
-- Input validation and security guardrails
-- Detailed logging and error handling
-- Configurable prompts and tool selection
-
-## Architecture
-
-The system uses a multi-agent architecture with LangGraph:
-
-1. **Supervisor Agent**: 
-   - Validates input and manages the workflow
-   - Classifies resources as internal, cloud, or internet
-   - Uses pattern matching for resource classification
-2. **Tools Expert Agent**: 
-   - Selects and executes appropriate security tools
-   - Routes internal/cloud resources to IRG
-   - Routes internet resources to external APIs
-3. **Output Format Agent**: 
-   - Formats and presents the results
-
-### Resource Classification
-
-The supervisor agent classifies resources using the following hierarchy:
-
-1. **Internal Resources**:
-   - Internal IPs (e.g., 192.168.100.0/24)
-   - Internal domains (e.g., *.internal.rickonsecurity.com)
-2. **Cloud Resources**:
-   - Azure resources (e.g., *.azure.internal.rickonsecurity.com)
-   - GCP resources (e.g., *.gcp.internal.rickonsecurity.com)
-   - AWS resources (e.g., *.aws.internal.rickonsecurity.com)
-3. **Internet Resources**:
-   - Public IPs
-   - Public domains
-
-### LangGraph Implementation
-
-The workflow is implemented using LangGraph's StateGraph:
-
-```python
-workflow = StateGraph(AgentState)
-workflow.add_node("supervisor", supervisor_node)
-workflow.add_node("tools_expert", tools_expert_node)
-workflow.add_node("output_format", output_format_node)
-```
-
-The graph uses conditional routing based on the state:
-- If there's an error or invalid query → Output Format
-- If valid security query → Tools Expert → Output Format
+- Multi-agent architecture using LangGraph
+- Support for internal and cloud resources
+- Integration with Google Gemini for LLM operations
+- Comprehensive security analysis tools
+- Input/output validation and guardrails
+- Configurable prompts and tool settings
 
 ## Configuration
 
-### Environment Variables
+The agent uses several configuration files in the `config` directory:
 
-Required API keys:
-```bash
-export IPAPI_API_KEY=your_ipapi_key
-export ABUSEIPDB_API_KEY=your_abuseipdb_key
-export SHODAN_API_KEY=your_shodan_key
-export VT_API_KEY=your_virustotal_key
-```
+### 1. Prompts and Tools Configuration (`prompts.json`)
 
-### Resource Configuration
+Contains all prompts and tool configurations in a single JSON file:
+- Classifier prompts
+- Gemini-specific prompts
+- Tool configurations (WHOIS, DNS, Shodan, etc.)
+- Output formatting rules
 
-Internal and cloud resources are configured in `config/internal_resources.json`:
+Example structure:
 ```json
 {
-  "internal_networks": [
-    "192.168.100.0/24",
-    "10.0.0.0/8"
-  ],
-  "internal_domains": [
-    "*.internal.rickonsecurity.com"
-  ],
-  "cloud_domains": {
-    "azure": "*.azure.internal.rickonsecurity.com",
-    "gcp": "*.gcp.internal.rickonsecurity.com",
-    "aws": "*.aws.internal.rickonsecurity.com"
+  "classifier": { ... },
+  "gemini": {
+    "classifier": { ... },
+    "analyzer": { ... },
+    "formatter": { ... }
+  },
+  "tools": {
+    "whois_analysis": { ... },
+    "dns_analysis": { ... },
+    ...
   }
 }
 ```
 
-### Prompt Configuration
+### 2. Validation Rules (`validation_rules.yaml`)
 
-Prompts are stored in `config/prompts.json` and include:
-- Classifier prompts for query validation
-- Supervisor prompts for workflow management
-- Output formatter prompts for result presentation
+Defines input/output validation rules and guardrails:
+- Sensitive data detection
+- Malicious command prevention
+- Output sanitization
 
-### Tool Configuration
+### 3. Internal Resources (`internal_resources.json`)
 
-Tools are configured in `config/tools.csv` with:
-- Tool name and description
-- Input types
-- API endpoints
-- Required API keys
+Defines patterns for internal and cloud resources:
+- Internal domain patterns
+- Cloud provider patterns
+- Resource classification rules
 
-## Input/Output Guardrails
-
-### Input Validation
-- Query length limits (3-500 characters)
-- Character validation (alphanumeric, basic punctuation)
-- Security query classification
-- Entity extraction and validation
-
-### Output Validation
-- Structured output format
-- Security context preservation
-- Error handling and reporting
-- Data sanitization
-
-## Example Queries
-
-The agent can handle various security analysis queries:
-
-```bash
-# Internal resource analysis
-python security_agent_langgraph.py "Analyze the security of 192.168.100.10"
-python security_agent_langgraph.py "Check the security status of app.internal.rickonsecurity.com"
-
-# Cloud resource analysis
-python security_agent_langgraph.py "Analyze the security of app1.azure.internal.rickonsecurity.com"
-python security_agent_langgraph.py "Check the security status of app1.gcp.internal.rickonsecurity.com"
-
-# Internet resource analysis
-python security_agent_langgraph.py "Analyze the security of 8.8.8.8"
-python security_agent_langgraph.py "What can you tell me about example.com"
-```
-
-## Installation
+## Setup
 
 1. Clone the repository:
-```bash
-git clone https://github.com/ooRickoo/agent-test4.git
-cd agent-test4
-```
+   ```bash
+   git clone <repository-url>
+   cd security-agent-langgraph
+   ```
 
-2. Create and activate virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
+3. Set up environment variables in `.env`:
+   ```
+   GOOGLE_API_KEY=your_google_api_key
+   RV_CLIENT_ID=your_service_api_id
+   RV_API_KEY=your_service_api_key
+   APIGW_CONSUMER_KEY=your_api_gateway_key
+   APIGW_CONSUMER_SECRET=your_api_gateway_secret
+   SHODAN_API_KEY=your_shodan_api_key
+   WHOIS_API_KEY=your_whois_api_key
+   IPGEO_API_KEY=your_ipgeo_api_key
+   ABUSEIPDB_API_KEY=your_abuseipdb_api_key
+   VIRUSTOTAL_API_KEY=your_virustotal_api_key
+   ```
 
 ## Usage
 
 Run the agent with a security query:
 ```bash
-python security_agent_langgraph.py "Analyze the security of 8.8.8.8"
+python security_agent_langgraph.py "Analyze the security of example.com"
 ```
 
-Enable debug output:
-```bash
-python security_agent_langgraph.py --debug "Analyze the security of 8.8.8.8"
-```
+### Example Queries
 
-## Project Structure
+1. Internal Resource Analysis:
+   ```bash
+   python security_agent_langgraph.py "Analyze app1.azure.internal.rickonsecurity.com"
+   ```
 
-```
-.
-├── config/
-│   ├── prompts.json     # LLM prompts configuration
-│   └── tools.csv        # Security tools configuration
-├── security_agent_langgraph.py  # Main agent implementation
-├── requirements.txt     # Python dependencies
-├── .env.example        # Example environment variables
-└── README.md           # This file
-```
+2. Cloud Resource Analysis:
+   ```bash
+   python security_agent_langgraph.py "Check security of s3-bucket.rickonsecurity.com"
+   ```
 
-## Contributing
+3. Internet Resource Analysis:
+   ```bash
+   python security_agent_langgraph.py "Analyze 8.8.8.8"
+   ```
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+## Architecture
 
-## License
+### Agent Components
 
-MIT License - see LICENSE file for details
+1. **Supervisor Agent**
+   - Validates and classifies queries
+   - Manages resource classification
+   - Coordinates tool execution
+   - Ensures output quality
 
-## Support
+2. **Tools Expert**
+   - Selects appropriate tools
+   - Executes security analysis tools
+   - Handles tool-specific logic
 
-For issues and feature requests, please create an issue in the repository.
+3. **Output Formatter**
+   - Formats analysis results
+   - Generates comprehensive reports
+   - Ensures consistent output style
+
+### Resource Classification
+
+Resources are classified in the following hierarchy:
+1. Internal Resources
+   - Matches internal domain patterns
+   - Uses IRG for validation
+2. Cloud Resources
+   - Matches cloud provider patterns
+   - Validates against cloud metadata
+3. Internet Resources
+   - All other resources
+   - Standard security analysis
+
+## Development
+
+### Adding New Tools
+
+1. Add tool configuration to `config/prompts.json`:
+   ```json
+   "tools": {
+     "new_tool": {
+       "name": "new_tool",
+       "description": "Tool description",
+       "input_types": ["internet:ip", "internet:domain"],
+       "prompt": "Tool-specific prompt",
+       "api_key_env": "NEW_TOOL_API_KEY",
+       "base_url": "https://api.newtool.com/v1",
+       "output_format": [...]
+     }
+   }
+   ```
+
+2. Implement tool function in `security_agent_langgraph.py`
+3. Add tool to the tools expert node
+
+### Modifying Prompts
+
+Edit the appropriate section in `config/prompts.json`:
+- `classifier`: Query classification prompts
+- `gemini`: Gemini-specific prompts
+- `tools`: Tool-specific prompts
+- `output_formatter`: Output formatting rules
+
+## Acknowledgments
+
+- [Google Gemini](https://ai.google.dev/)
+- [LangChain](https://github.com/langchain-ai/langchain)
+- [Shodan](https://www.shodan.io/)
 
 ## Project Structure
 

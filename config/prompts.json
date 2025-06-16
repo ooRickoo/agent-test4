@@ -47,6 +47,20 @@
       ]
     }
   },
+  "gemini": {
+    "classifier": {
+      "system": "You are a security query classifier. Analyze the following query and determine if it is security-related. You must respond with a valid JSON object containing: {\"valid_cs_question\": boolean, \"search_classification\": string (one of: security_posture_ip, security_posture_domain, security_posture_fqdn, geolocation_ip, ownership_network, ownership_domain), \"entities\": {\"entity1\": {\"type\": string, \"value\": string}}, \"reason\": string (if not valid)}. Respond with ONLY the JSON object, no other text.",
+      "user": "Query: {query}"
+    },
+    "analyzer": {
+      "system": "You are a security analyst. Analyze the following security data and provide a comprehensive security analysis. Include: 1. Summary of findings 2. Technical details 3. Security implications 4. Recommendations. Format your response as a clear, professional security report.",
+      "user": "Query: {query}\nTool Results: {tool_results}"
+    },
+    "formatter": {
+      "system": "You are a security report formatter. Format the following security analysis into a clear, professional report. Include: 1. Executive Summary 2. Technical Details 3. Security Implications 4. Recommendations. Format your response as a well-structured security report.",
+      "user": "Query: {query}\nAnalysis: {analysis}"
+    }
+  },
   "supervisor": {
     "system": "You are a cybersecurity supervisor agent. Your role is to validate and enhance security analysis results.",
     "user": "Analyze the following query and provide a clear, professional analysis with the following sections:\n1. Summary: Brief overview of the analysis findings\n2. Technical Details: Detailed technical information about the entities analyzed\n3. Security Implications: Security-related insights and potential concerns\n4. Recommendations: Suggested actions or next steps\n\nQuery: {query}",
@@ -64,9 +78,12 @@
   },
   "tools": {
     "whois_analysis": {
-      "system": "You are a cybersecurity analyst specializing in WHOIS analysis.",
-      "user": "Return summarized WHOIS domain information or WHOIS IP ownership information for a queried entity.",
+      "name": "whois_analysis",
+      "description": "WHOIS domain and IP information",
       "input_types": ["internet:domain", "internet:ip"],
+      "prompt": "You are a cybersecurity analyst. Return summarized whois domain information or whois ip ownership information for a queried entity.",
+      "api_key_env": "WHOIS_API_KEY",
+      "base_url": "https://api.whoisfreaks.com/v1.0/whois",
       "output_format": {
         "domain": [
           "registrar",
@@ -84,9 +101,12 @@
       }
     },
     "geolocation": {
-      "system": "You are a cybersecurity analyst specializing in IP geolocation.",
-      "user": "Return IP Geolocation information about the queried entity.",
+      "name": "geolocate",
+      "description": "IP Geolocation information",
       "input_types": ["internet:ip"],
+      "prompt": "You are a cybersecurity analyst. Return IP Geolocation information about the queried entity.",
+      "api_key_env": "IPGEO_API_KEY",
+      "base_url": "https://api.ipgeolocation.io/ipgeo",
       "output_format": [
         "city",
         "region",
@@ -97,9 +117,12 @@
       ]
     },
     "dns_analysis": {
-      "system": "You are a cybersecurity analyst specializing in DNS analysis.",
-      "user": "Using the input and DNS tools only, summarize the searched entity output.",
-      "input_types": ["internet:domain", "internet:ip"],
+      "name": "dns_analysis",
+      "description": "DNS record analysis",
+      "input_types": ["internet:domain", "internet:fqdn", "internet:ip"],
+      "prompt": "You are a cybersecurity analyst. Using the input and DNS tools only, summarize the searched entity output. For IP, return the resolved FQDN. For fqdn, return the IP address. For domain, summarize useful information NS, MX, CNAME, A, AAA, AAAA, and TXT records.",
+      "api_key_env": null,
+      "base_url": "local",
       "output_format": {
         "domain": [
           "ns_records",
@@ -116,9 +139,12 @@
       }
     },
     "abuseipdb": {
-      "system": "You are a cybersecurity analyst specializing in IP reputation analysis.",
-      "user": "Query abuseipdb and summarize findings from the service.",
+      "name": "abuseipdb",
+      "description": "AbuseIPDB reputation check",
       "input_types": ["internet:ip"],
+      "prompt": "You are a cybersecurity analyst. Query abuseipdb and summarize findings from the service.",
+      "api_key_env": "ABUSEIPDB_API_KEY",
+      "base_url": "https://api.abuseipdb.com/api/v2/check",
       "output_format": [
         "abuse_confidence_score",
         "total_reports",
@@ -129,9 +155,12 @@
       ]
     },
     "shodan": {
-      "system": "You are a cybersecurity analyst specializing in network intelligence.",
-      "user": "Query shodan and summarize findings from the service.",
+      "name": "shodan",
+      "description": "Shodan device search",
       "input_types": ["internet:ip", "internet:fqdn"],
+      "prompt": "You are a cybersecurity analyst. Query shodan and summarize findings from the service.",
+      "api_key_env": "SHODAN_API_KEY",
+      "base_url": "https://api.shodan.io/shodan/host",
       "output_format": [
         "hostnames",
         "os",
@@ -142,9 +171,12 @@
       ]
     },
     "virustotal": {
-      "system": "You are a cybersecurity analyst specializing in threat intelligence.",
-      "user": "Query virustotal and summarize findings from the service.",
+      "name": "virustotal",
+      "description": "VirusTotal threat intelligence",
       "input_types": ["internet:ip", "internet:fqdn"],
+      "prompt": "You are a cybersecurity analyst. Query virustotal and summarize findings from the service.",
+      "api_key_env": "VIRUSTOTAL_API_KEY",
+      "base_url": "https://www.virustotal.com/vtapi/v2/url/report",
       "output_format": [
         "malicious",
         "suspicious",
