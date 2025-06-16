@@ -30,6 +30,19 @@ def load_prompts() -> Dict[str, Dict[str, str]]:
         logger.error(f"Error loading prompts: {str(e)}")
         raise
 
+def load_tools() -> Dict[str, Dict[str, Any]]:
+    """Load security tools configuration from JSON file."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "config", "tools.json")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Tools configuration file not found at {config_path}")
+            
+        with open(config_path, "r") as f:
+            return json.load(f)["security_tools"]
+    except Exception as e:
+        logger.error(f"Error loading tools configuration: {str(e)}")
+        raise
+
 class TokenManager:
     """Manages OAuth token lifecycle and refresh."""
     
@@ -108,8 +121,9 @@ class GeminiClient:
             "Content-Type": "application/json"
         }
         
-        # Load prompts
+        # Load prompts and tools
         self.prompts = load_prompts()
+        self.tools = load_tools()
         
         # Validate required environment variables
         self._validate_config()

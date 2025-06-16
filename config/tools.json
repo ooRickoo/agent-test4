@@ -1,0 +1,59 @@
+{
+    "security_tools": {
+        "splunk": {
+            "name": "Splunk",
+            "description": "Search and analyze security logs and events",
+            "endpoint": "https://splunk.internal.rickonsecurity.com",
+            "capabilities": [
+                "log search",
+                "event correlation",
+                "threat detection",
+                "incident investigation"
+            ]
+        },
+        "crowdstrike": {
+            "name": "CrowdStrike",
+            "description": "Endpoint detection and response platform",
+            "endpoint": "https://falcon.internal.rickonsecurity.com",
+            "capabilities": [
+                "endpoint protection",
+                "threat hunting",
+                "malware detection",
+                "incident response"
+            ]
+        },
+        "qualys": {
+            "name": "Qualys",
+            "description": "Vulnerability management and compliance platform",
+            "endpoint": "https://qualys.internal.rickonsecurity.com",
+            "capabilities": [
+                "vulnerability scanning",
+                "compliance monitoring",
+                "asset management",
+                "risk assessment"
+            ]
+        },
+        "okta": {
+            "name": "Okta",
+            "description": "Identity and access management platform",
+            "endpoint": "https://okta.internal.rickonsecurity.com",
+            "capabilities": [
+                "user authentication",
+                "access control",
+                "single sign-on",
+                "multi-factor authentication"
+            ]
+        },
+        "jira": {
+            "name": "Jira",
+            "description": "Issue tracking and project management",
+            "endpoint": "https://jira.internal.rickonsecurity.com",
+            "capabilities": [
+                "incident tracking",
+                "task management",
+                "workflow automation",
+                "reporting"
+            ]
+        }
+    }
+} 
